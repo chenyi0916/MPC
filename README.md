@@ -1,6 +1,6 @@
 To run the test file:
 ```bash
-python3 MPC_test2.py
+python3 MPC_parking_Ipopt.py
 ```
 Example Output:
 
