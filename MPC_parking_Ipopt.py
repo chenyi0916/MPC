@@ -21,7 +21,7 @@ def simulate_vehicle(x, y, theta, v, delta, dt, L):
     return x_next, y_next, theta_next
 
 # Setup the MPC problem 
-def setup_mpc_front(N, dt, L, x_start, y_start, theta_start, x_goal, y_goal, theta_goal, obstacles):
+def setup_mpc(setup_type,N, dt, L, x_start, y_start, theta_start, x_goal, y_goal, theta_goal, obstacles):
     """
     Setup and solve the MPC problem.
     Returns the first control inputs (v, delta) from the optimized trajectory.
@@ -29,10 +29,14 @@ def setup_mpc_front(N, dt, L, x_start, y_start, theta_start, x_goal, y_goal, the
 
     # Steering angle and velocity limits
     delta_min, delta_max = -np.pi/4, np.pi/4
-    a_min, a_max = 0, 0.5
-    v_min, v_max = 0, 1
-    # w_vehicle = 0.5
-    # h_vehicle = 1
+
+    if setup_type == 'front':
+        a_min, a_max = 0, 0.5
+        v_min, v_max = 0, 1
+    elif setup_type == 'back':
+        a_min, a_max = -0.5, 0
+        v_min, v_max = -1, 0
+
 
     opti = ca.Opti()  # Create an optimization problem
 
@@ -60,6 +64,13 @@ def setup_mpc_front(N, dt, L, x_start, y_start, theta_start, x_goal, y_goal, the
             Delta[i] >= delta_min, Delta[i] <= delta_max  # Steering angle constraints
         ]
 
+    if setup_type == 'back':
+    # Obstacle avoidance constraints       
+        for obstacle in obstacles:
+            ox, oy, ow, oh = obstacle
+            for i in range(N+1):
+                constraints.append(ca.sqrt((X[i] - ox)**2 + (Y[i] - oy)**2) >= ow) #np.sqrt(ow ** 2 + oh ** 2
+
     # Set up the optimization problem
     opti.minimize(objective)
     opti.subject_to(constraints)
@@ -84,70 +95,6 @@ def setup_mpc_front(N, dt, L, x_start, y_start, theta_start, x_goal, y_goal, the
     except Exception as e:
         print("Solver encountered an error:", e)
         return None, None  # Return a tuple of None to indicate failure
-
-def setup_mpc_back(N, dt, L, x_start, y_start, theta_start, x_goal, y_goal, theta_goal, obstacles):
-    """
-    Setup and solve the MPC problem.
-    Returns the first control inputs (v, delta) from the optimized trajectory.
-    """
-
-    # Steering angle and velocity limits
-    delta_min, delta_max = -np.pi/4, np.pi/4
-    a_min, a_max = -0.5, 0
-    v_min, v_max = -1, 0
-    # w_vehicle = 0.5
-    # h_vehicle = 1
-
-    opti = ca.Opti()  # Create an optimization problem
-
-    # Variables
-    X = opti.variable(N+1)
-    Y = opti.variable(N+1)
-    Theta = opti.variable(N+1)
-    V = opti.variable(N+1)
-    Delta = opti.variable(N)
-    A = opti.variable(N)
-
-    # Objective function (for simplicity, just trying to reach the goal)
-    objective = ca.sum1((X - x_goal)**2 + (Y - y_goal)**2 + (Theta - theta_goal)**2)
-
-    # Dynamics constraints
-    constraints = [X[0] == x_start, Y[0] == y_start, Theta[0] == theta_start]
-    for i in range(N):
-        constraints += [
-            X[i+1] == X[i] + V[i] * ca.cos(Theta[i]) * dt,
-            Y[i+1] == Y[i] + V[i] * ca.sin(Theta[i]) * dt,
-            Theta[i+1] == Theta[i] + V[i] * ca.tan(Delta[i]) / L * dt,
-            V[i+1] == V[i] + A[i] *dt,
-            A[i] >= a_min, A[i] <= a_max,  # Acceleration constraints
-            V[i] >= v_min, V[i] <= v_max,
-            Delta[i] >= delta_min, Delta[i] <= delta_max  # Steering angle constraints
-        ]
-
-    # Set up the optimization problem
-    opti.minimize(objective)
-    opti.subject_to(constraints)
-
-    # Provide an initial guess
-    opti.set_initial(X, np.linspace(x_start, x_goal, N+1))
-    opti.set_initial(Y, np.linspace(y_start, y_goal, N+1))
-    opti.set_initial(Theta, np.linspace(theta_start, theta_goal, N+1))
-    opti.set_initial(V, 0)
-    opti.set_initial(Delta, 0)
-    opti.set_initial(A, 0)
-    # Set solver options for debugging
-    opti.solver('ipopt', {'ipopt': {'print_level': 5, 'tol': 1e-6}})
-
-    try:
-        solution = opti.solve()
-        # Extract and return the first control inputs from the solution
-        v_opt = solution.value(V[0])
-        delta_opt = solution.value(Delta[0])
-        return v_opt, delta_opt
-    except Exception as e:
-        print("Solver encountered an error:", e)
-        return None, None  # Return a tuple of None to indicate failure
-
 
 # Initial vehicle state
 x_current, y_current, theta_current = 0, 5, 0
@@ -164,7 +111,8 @@ dt = 0.2
 L = 2.0
 T_sim1 = 100 
 T_sim2 = 150  
-
+setup_type1 = 'front'
+setup_type2 = 'back'
 w_vehicle = 1
 h_vehicle = 3
 
@@ -178,7 +126,7 @@ y_trajectory = [y_current]
 # From intial position to back waypoint
 for t in range(T_sim1):
     # Solve the MPC problem with the current state as the starting point
-    v_opt, delta_opt = setup_mpc_front(N, dt, L, x_current, y_current, theta_current, x_back, y_back, theta_back, obstacles)
+    v_opt, delta_opt = setup_mpc(setup_type1,N, dt, L, x_current, y_current, theta_current, x_back, y_back, theta_back, obstacles)
     
     if v_opt == None or delta_opt == None:
         print("Solution doesn't exist.")
@@ -204,7 +152,7 @@ for t in range(T_sim1):
 # From waypoint to goal position
 for t in range(T_sim2):
     # Solve the MPC problem with the current state as the starting point
-    v_opt, delta_opt = setup_mpc_back(N, dt, L, x_current, y_current, theta_current, x_goal, y_goal, theta_goal, obstacles)
+    v_opt, delta_opt = setup_mpc(setup_type2,N, dt, L, x_current, y_current, theta_current, x_goal, y_goal, theta_goal, obstacles)
     
     if v_opt == None or delta_opt == None:
         print("Solution doesn't exist.")
