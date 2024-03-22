@@ -54,6 +54,7 @@ for i in range(len(path_points)-N):
 
     # Constraints
     for j in range(N):
+        opti.subject_to(V[0] == 0)
         opti.subject_to(X[j+1] == X[j] + dt * V[j] * cos(theta[j]))
         opti.subject_to(Y[j+1] == Y[j] + dt * V[j] * sin(theta[j]))
         opti.subject_to(theta[j+1] == theta[j] + dt * V[j] / L * tan(Delta[j]))
