@@ -84,7 +84,7 @@ def setup_mpc(setup_type,N, dt, L, x_start, y_start, theta_start, x_goal, y_goal
     opti.set_initial(A, 0)
 
     # Set solver options for debugging
-    opti.solver('ipopt', {'ipopt': {'print_level': 5, 'tol': 1e-6}})
+    opti.solver('ipopt', {'ipopt': {'print_level': 0, 'tol': 1e-6}})
 
     try:
         solution = opti.solve()
@@ -123,55 +123,55 @@ obstacles = [(7,1.5,1,3),(3,1.5,1,3)]
 x_trajectory = [x_current]
 y_trajectory = [y_current]
 
+phase_flag = 1
+
 # From intial position to back waypoint
-for t in range(T_sim1):
-    # Solve the MPC problem with the current state as the starting point
-    v_opt, delta_opt = setup_mpc(setup_type1,N, dt, L, x_current, y_current, theta_current, x_back, y_back, theta_back, obstacles)
-    
-    if v_opt == None or delta_opt == None:
-        print("Solution doesn't exist.")
-        break
+while True:
+    if phase_flag == 1:
+        # Solve the MPC problem with the current state as the starting point
+        v_opt, delta_opt = setup_mpc(setup_type1,N, dt, L, x_current, y_current, theta_current, x_back, y_back, theta_back, obstacles)
+        
+        if v_opt == None or delta_opt == None:
+            print("Solution doesn't exist.")
+            break
 
-    # Simulate vehicle dynamics for one time step using the optimized control inputs
-    x_next, y_next, theta_next = simulate_vehicle(x_current, y_current, theta_current, v_opt, delta_opt, dt, L)
-    
-    # Update current state for the next iteration
-    x_current, y_current, theta_current = x_next, y_next, theta_next
+        # Simulate vehicle dynamics for one time step using the optimized control inputs
+        x_next, y_next, theta_next = simulate_vehicle(x_current, y_current, theta_current, v_opt, delta_opt, dt, L)
+        
+        # Update current state for the next iteration
+        x_current, y_current, theta_current = x_next, y_next, theta_next
 
-    # Store the new position
-    x_trajectory.append(x_current)
-    y_trajectory.append(y_current)
+        # Store the new position
+        x_trajectory.append(x_current)
+        y_trajectory.append(y_current)
 
-    # Termination condition if the vehicle reaches the goal area
-    if np.sqrt((x_current - x_back)**2 + (y_current - y_back)**2) <= 0.2:  # threshold for reaching the goal
-        print("Back point reached.")
-        break
+        # Termination condition if the vehicle reaches the goal area
+        if np.sqrt((x_current - x_back)**2 + (y_current - y_back)**2) <= 0.7:  # threshold for reaching the goal
+            print("Back point reached.")
+            phase_flag = 2
+            
+    elif phase_flag == 2:
+        # Solve the MPC problem with the current state as the starting point
+        v_opt, delta_opt = setup_mpc(setup_type2,N, dt, L, x_current, y_current, theta_current, x_goal, y_goal, theta_goal, obstacles)
+        
+        if v_opt == None or delta_opt == None:
+            print("Solution doesn't exist.")
+            break
 
+        # Simulate vehicle dynamics for one time step using the optimized control inputs
+        x_next, y_next, theta_next = simulate_vehicle(x_current, y_current, theta_current, v_opt, delta_opt, dt, L)
+        
+        # Update current state for the next iteration
+        x_current, y_current, theta_current = x_next, y_next, theta_next
 
+        # Store the new position
+        x_trajectory.append(x_current)
+        y_trajectory.append(y_current)
 
-# From waypoint to goal position
-for t in range(T_sim2):
-    # Solve the MPC problem with the current state as the starting point
-    v_opt, delta_opt = setup_mpc(setup_type2,N, dt, L, x_current, y_current, theta_current, x_goal, y_goal, theta_goal, obstacles)
-    
-    if v_opt == None or delta_opt == None:
-        print("Solution doesn't exist.")
-        break
-
-    # Simulate vehicle dynamics for one time step using the optimized control inputs
-    x_next, y_next, theta_next = simulate_vehicle(x_current, y_current, theta_current, v_opt, delta_opt, dt, L)
-    
-    # Update current state for the next iteration
-    x_current, y_current, theta_current = x_next, y_next, theta_next
-
-    # Store the new position
-    x_trajectory.append(x_current)
-    y_trajectory.append(y_current)
-
-    # Termination condition if the vehicle reaches the goal area
-    if np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) < 0.1:  # threshold for reaching the goal
-        print("Goal reached.")
-        break
+        # Termination condition if the vehicle reaches the goal area
+        if np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.2:  # threshold for reaching the goal
+            print("Goal reached.")
+            break
 
 
 # Creating the figure and axis for the animation
