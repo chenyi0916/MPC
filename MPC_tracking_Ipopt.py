@@ -15,28 +15,25 @@ if len(x_data) != len(y_data):
 # Create waypoints
 path_points = np.column_stack((x_data.values.flatten(), y_data.values.flatten()))
 
-# path_x = np.linspace(0, 20, 200)  
-# path_y = np.sin(path_x/2)*2 
-
 # Simulation parameters
 N = 4
 dt = 0.1
 L = 2.0  
 
-# Constraints
-delta_max = np.pi / 4 
-a_max = 1.0
-a_min = -a_max  
-v_max = 1.0 
+x_traj, y_traj = [], []
+
+def mpc_setup(N,dt, L, path_points):
+    # Constraints
+    delta_max = np.pi / 4 
+    a_max = 1.0
+    a_min = -a_max  
+    v_max = 1.0 
 
 
-# Initialization
-x0, y0, theta0, v0, a0 = path_points[0,0], path_points[0,1], 0, 0, 0
-# x0, y0, theta0, v0 = 0, 0, 0, 0
-x_traj, y_traj = [x0], [y0]
+    # Initialization
+    x0, y0, theta0, v0, a0 = path_points[0,0], path_points[0,1], 0, 0, 0
 
-# MPC setup
-for i in range(len(path_points)-N):
+    # MPC setup
     opti = Opti()  
 
     A = opti.variable(N)
@@ -55,8 +52,8 @@ for i in range(len(path_points)-N):
     opti.set_initial(A, 0)
 
     # Constraints
+    opti.subject_to(V[0] == 0)
     for j in range(N):
-        opti.subject_to(V[0] == 0)
         opti.subject_to(X[j+1] == X[j] + dt * V[j] * cos(theta[j]))
         opti.subject_to(Y[j+1] == Y[j] + dt * V[j] * sin(theta[j]))
         opti.subject_to(theta[j+1] == theta[j] + dt * V[j] / L * tan(Delta[j]))
@@ -71,7 +68,6 @@ for i in range(len(path_points)-N):
     objective = 0
     for j in range(N):
         objective += ((X[j] - path_points[i+j,0])**2 + (Y[j] - path_points[i+j,1])**2)
-        # objective += ((X[j] - path_x[i+j])**2 + (Y[j] - path_y[i+j])**2)
     opti.minimize(objective)
 
     # Set solver options for debugging
@@ -80,7 +76,10 @@ for i in range(len(path_points)-N):
 
     # Update to next state
     x0, y0, theta0, v0, a0 = sol.value(X[1]), sol.value(Y[1]), sol.value(theta[1]), sol.value(V[1]), sol.value(A[1])
+    return x0, y0, theta0, v0, a0
 
+for i in range(len(path_points)-N):
+    x0, y0, theta0, v0, a0 = mpc_setup(N,dt, L, path_points)
     # Store the new position
     x_traj.append(x0)
     y_traj.append(y0)
