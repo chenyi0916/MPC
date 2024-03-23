@@ -20,14 +20,25 @@ N = 4
 dt = 0.1
 L = 2.0  
 
+# Initialization
+x0, y0, theta0, v0, a0 = path_points[0,0], path_points[0,1], 0, 0, 0
 x_traj, y_traj = [], []
+
+def simulate_vehicle(x, y, theta, v, delta, dt, L):
+    """
+    Simulate vehicle dynamics for one time step.
+    """
+    x_next = x + v * np.cos(theta) * dt
+    y_next = y + v * np.sin(theta) * dt
+    theta_next = theta + v * np.tan(delta) / L * dt
+    return x_next, y_next, theta_next
 
 def mpc_setup(N,dt, L, path_points):
     # Constraints
     delta_max = np.pi / 4 
-    a_max = 1.0
+    a_max = 0.5
     a_min = -a_max  
-    v_max = 1.0 
+    v_max = 1
 
 
     # Initialization
@@ -75,14 +86,17 @@ def mpc_setup(N,dt, L, path_points):
     sol = opti.solve()
 
     # Update to next state
-    x0, y0, theta0, v0, a0 = sol.value(X[1]), sol.value(Y[1]), sol.value(theta[1]), sol.value(V[1]), sol.value(A[1])
-    return x0, y0, theta0, v0, a0
+    x0, y0, theta0, v0, a0, delta0 = sol.value(X[1]), sol.value(Y[1]), sol.value(theta[1]), sol.value(V[1]), sol.value(A[0]), sol.value(Delta[0])
+    return x0, y0, theta0, v0, a0, delta0
 
 for i in range(len(path_points)-N):
-    x0, y0, theta0, v0, a0 = mpc_setup(N,dt, L, path_points)
+    
+    x0, y0, theta0, v0, a0, delta0 = mpc_setup(N,dt, L, path_points)
+    x_next, y_next, theta_next = simulate_vehicle(x0, y0, theta0, v0, delta0, dt, L)
+    
     # Store the new position
-    x_traj.append(x0)
-    y_traj.append(y0)
+    x_traj.append(x_next)
+    y_traj.append(y_next)
 
 # Creating the figure and axis for the animation
 fig, ax = plt.subplots()
@@ -120,14 +134,7 @@ def update(frame):
 ani = FuncAnimation(fig, update, frames=range(len(x_traj)), init_func=init, blit=True, interval=100)
 
 plt.show()
-# # Plot
-# plt.scatter(path_points[:,0], path_points[:,1], label='Waypoints')
-# # plt.scatter(path_x, path_y, label='Waypoints')
-# plt.plot(x_traj, y_traj, 'b-', label='Vehicle Trajectory')
-# plt.xlabel('X')
-# plt.ylabel('Y')
-# plt.legend()
-# plt.show()
+
 
 
 
