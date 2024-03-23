@@ -25,11 +25,13 @@ L = 2.0
 
 # Constraints
 delta_max = np.pi / 4 
-a_max = 1.0 
+a_max = 1.0
 a_min = -a_max  
+v_max = 1.0 
+
 
 # Initialization
-x0, y0, theta0, v0 = path_points[0,0], path_points[0,1], 0, 0
+x0, y0, theta0, v0, a0 = path_points[0,0], path_points[0,1], 0, 0, 0
 # x0, y0, theta0, v0 = 0, 0, 0, 0
 x_traj, y_traj = [x0], [y0]
 
@@ -63,6 +65,7 @@ for i in range(len(path_points)-N):
         opti.subject_to(Delta[j] <= delta_max)
         opti.subject_to(a_min <= A[j])
         opti.subject_to(A[j] <= a_max)
+        opti.subject_to(V[j] <= v_max)
 
     # Set up the optimization problem
     objective = 0
@@ -76,7 +79,7 @@ for i in range(len(path_points)-N):
     sol = opti.solve()
 
     # Update to next state
-    x0, y0, theta0, v0 = sol.value(X[1]), sol.value(Y[1]), sol.value(theta[1]), sol.value(V[1])
+    x0, y0, theta0, v0, a0 = sol.value(X[1]), sol.value(Y[1]), sol.value(theta[1]), sol.value(V[1]), sol.value(A[1])
 
     # Store the new position
     x_traj.append(x0)
