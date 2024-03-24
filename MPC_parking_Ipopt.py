@@ -39,14 +39,14 @@ def setup_mpc(setup_type,N, dt, L, x0, y0, theta0, v0, x_goal, y_goal, theta_goa
 
     opti = ca.Opti()  # Create an optimization problem
 
-    # 决策变量
-    X = opti.variable(4, N+1)  # 状态变量 [x, y, theta, v]
-    U = opti.variable(2, N)    # 控制变量 [加速度, 转向角]
+    # State
+    X = opti.variable(4, N+1)  # [x, y, theta, v]
+    U = opti.variable(2, N)    # [a, delta]
 
-    # 初始条件
+    # Initial constraints
     opti.subject_to(X[:,0] == [x0, y0, theta0, v0])
 
-    # 动力学约束
+    # Dynamics constraints
     for k in range(N):
         x_next = X[0,k] + X[3,k]*ca.cos(X[2,k])*dt
         y_next = X[1,k] + X[3,k]*ca.sin(X[2,k])*dt
@@ -58,32 +58,27 @@ def setup_mpc(setup_type,N, dt, L, x0, y0, theta0, v0, x_goal, y_goal, theta_goa
         opti.subject_to(X[2,k+1] == theta_next)
         opti.subject_to(X[3,k+1] == v_next)
 
-        # 障碍物约束
+        # Obstacle constraints
         if setup_type == 'back':
             for obs in obstacles:
                 obs_x, obs_y, obs_w, obs_h = obs
-                # 计算车辆与障碍物中心的距离的平方
                 distance_squared = (X[0,k] - obs_x)**2 + (X[1,k] - obs_y)**2
-                # 确保距离大于障碍物半径
                 opti.subject_to(distance_squared >= 0.1)
 
 
-    # 控制限制
+    # Control costraints
     opti.subject_to(opti.bounded(a_min, U[0,:], a_max))
     opti.subject_to(opti.bounded(delta_min, U[1,:], delta_max))
     opti.subject_to(opti.bounded(v_min, X[3,:], v_max))
 
-    # 目标函数：最小化到目标状态的距离
+    # objective
     opti.minimize(ca.sumsqr(X[0:4,-1] - [x_goal, y_goal, theta_goal, v_goal]))
 
-    # 求解器
+    # Solver
     opts = {"ipopt.print_level": 0, "print_time": 0}
     opti.solver("ipopt", opts)
 
-    # 求解
     sol = opti.solve()
-
-    # 提取解
     x_sol = sol.value(X[0,:])
     y_sol = sol.value(X[1,:])
     theta_sol = sol.value(X[2,:])
