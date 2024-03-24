@@ -141,7 +141,7 @@ while True:
         # if np.sqrt((x_current - x_back)**2 + (y_current - y_back)**2) <= 0.1:  # threshold for reaching the goal
         #     print("Back point reached.")
         #     phase_flag = 2
-        if np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.1 or v_current <= 0.001:  # threshold for reaching the goal
+        if np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.02 or v_current <= 0.001:  # threshold for reaching the goal
             print("Back point reached.")
             phase_flag = 2
         
@@ -167,7 +167,7 @@ while True:
         # if np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.2:  # threshold for reaching the goal
         #     print("Goal reached.")
         #     break
-        if  np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.1 or v_current > 0.001:  # threshold for reaching the goal
+        if  np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.1 and v_current > -0.001:  # threshold for reaching the goal
             print("Goal reached.")
             break
 
