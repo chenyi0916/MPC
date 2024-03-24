@@ -8,20 +8,19 @@ from matplotlib.patches import Rectangle
 #Vehicle Param
 L = 2.0         
 delta_max = np.pi/4 # max steering angle  
-safety_margin = 0.1  
-dt = 0.1   
-
-def simulate_vehicle(x, y, theta, v, delta, dt, L):
+dt = 0.2
+def simulate_vehicle(x, y, theta, v, delta, a, dt, L):
     """
     Simulate vehicle dynamics for one time step.
     """
     x_next = x + v * np.cos(theta) * dt
     y_next = y + v * np.sin(theta) * dt
     theta_next = theta + v * np.tan(delta) / L * dt
-    return x_next, y_next, theta_next
+    v_next = v + a * dt
+    return x_next, y_next, theta_next, v_next
 
 # Setup the MPC problem 
-def setup_mpc(setup_type,N, dt, L, x_start, y_start, theta_start, x_goal, y_goal, theta_goal, obstacles):
+def setup_mpc(setup_type,N, dt, L, x0, y0, theta0, v0, x_goal, y_goal, theta_goal, v_goal, obstacles):
     """
     Setup and solve the MPC problem.
     Returns the first control inputs (v, delta) from the optimized trajectory.
@@ -31,93 +30,91 @@ def setup_mpc(setup_type,N, dt, L, x_start, y_start, theta_start, x_goal, y_goal
     delta_min, delta_max = -np.pi/4, np.pi/4
 
     if setup_type == 'front':
-        a_min, a_max = 0, 0.5
+        a_min, a_max = -2, 2
         v_min, v_max = 0, 1
     elif setup_type == 'back':
-        a_min, a_max = -0.5, 0
-        v_min, v_max = -1, 0
+        a_min, a_max = -0.5, 0.5
+        v_min, v_max = -1, 0.01
 
 
     opti = ca.Opti()  # Create an optimization problem
 
-    # Variables
-    X = opti.variable(N+1)
-    Y = opti.variable(N+1)
-    Theta = opti.variable(N+1)
-    V = opti.variable(N+1)
-    Delta = opti.variable(N)
-    A = opti.variable(N)
+    # 决策变量
+    X = opti.variable(4, N+1)  # 状态变量 [x, y, theta, v]
+    U = opti.variable(2, N)    # 控制变量 [加速度, 转向角]
 
-    # Objective function (for simplicity, just trying to reach the goal)
-    objective = ca.sum1((X - x_goal)**2 + (Y - y_goal)**2 + (Theta - theta_goal)**2)
+    # 初始条件
+    opti.subject_to(X[:,0] == [x0, y0, theta0, v0])
 
-    # Dynamics constraints
-    constraints = [X[0] == x_start, Y[0] == y_start, Theta[0] == theta_start]
-    for i in range(N):
-        constraints += [
-            X[i+1] == X[i] + V[i] * ca.cos(Theta[i]) * dt,
-            Y[i+1] == Y[i] + V[i] * ca.sin(Theta[i]) * dt,
-            Theta[i+1] == Theta[i] + V[i] * ca.tan(Delta[i]) / L * dt,
-            V[i+1] == V[i] + A[i] *dt,
-            A[i] >= a_min, A[i] <= a_max,  # Acceleration constraints
-            V[i] >= v_min, V[i] <= v_max,
-            Delta[i] >= delta_min, Delta[i] <= delta_max  # Steering angle constraints
-        ]
+    # 动力学约束
+    for k in range(N):
+        x_next = X[0,k] + X[3,k]*ca.cos(X[2,k])*dt
+        y_next = X[1,k] + X[3,k]*ca.sin(X[2,k])*dt
+        theta_next = X[2,k] + X[3,k]/L*ca.tan(U[1,k])*dt
+        v_next = X[3,k] + U[0,k]*dt
+        
+        opti.subject_to(X[0,k+1] == x_next)
+        opti.subject_to(X[1,k+1] == y_next)
+        opti.subject_to(X[2,k+1] == theta_next)
+        opti.subject_to(X[3,k+1] == v_next)
 
-    if setup_type == 'back':
-    # Obstacle avoidance constraints       
-        for obstacle in obstacles:
-            ox, oy, ow, oh = obstacle
-            for i in range(N+1):
-                constraints.append(ca.sqrt((X[i] - ox)**2 + (Y[i] - oy)**2) >= ow) #np.sqrt(ow ** 2 + oh ** 2
+        # 障碍物约束
+        if setup_type == 'back':
+            for obs in obstacles:
+                obs_x, obs_y, obs_w, obs_h = obs
+                # 计算车辆与障碍物中心的距离的平方
+                distance_squared = (X[0,k] - obs_x)**2 + (X[1,k] - obs_y)**2
+                # 确保距离大于障碍物半径
+                opti.subject_to(distance_squared >= 0.1)
 
-    # Set up the optimization problem
-    opti.minimize(objective)
-    opti.subject_to(constraints)
 
-    # Provide an initial guess
-    opti.set_initial(X, np.linspace(x_start, x_goal, N+1))
-    opti.set_initial(Y, np.linspace(y_start, y_goal, N+1))
-    opti.set_initial(Theta, np.linspace(theta_start, theta_goal, N+1))
-    opti.set_initial(V, 0)
-    opti.set_initial(Delta, 0)
-    opti.set_initial(A, 0)
+    # 控制限制
+    opti.subject_to(opti.bounded(a_min, U[0,:], a_max))
+    opti.subject_to(opti.bounded(delta_min, U[1,:], delta_max))
+    opti.subject_to(opti.bounded(v_min, X[3,:], v_max))
 
-    # Set solver options for debugging
-    opti.solver('ipopt', {'ipopt': {'print_level': 0, 'tol': 1e-6}})
+    # 目标函数：最小化到目标状态的距离
+    opti.minimize(ca.sumsqr(X[0:4,-1] - [x_goal, y_goal, theta_goal, v_goal]))
 
-    try:
-        solution = opti.solve()
-        # Extract and return the first control inputs from the solution
-        v_opt = solution.value(V[0])
-        delta_opt = solution.value(Delta[0])
-        return v_opt, delta_opt
-    except Exception as e:
-        print("Solver encountered an error:", e)
-        return None, None  # Return a tuple of None to indicate failure
+    # 求解器
+    opts = {"ipopt.print_level": 0, "print_time": 0}
+    opti.solver("ipopt", opts)
+
+    # 求解
+    sol = opti.solve()
+
+    # 提取解
+    x_sol = sol.value(X[0,:])
+    y_sol = sol.value(X[1,:])
+    theta_sol = sol.value(X[2,:])
+    v_sol = sol.value(X[3,:])[0]
+    acc_sol = sol.value(U[0,:])[0]
+    delta_sol = sol.value(U[1,:])[0]
+
+    return v_sol, delta_sol, acc_sol
+
 
 # Initial vehicle state
-x_current, y_current, theta_current = 0, 5, 0
+x_current, y_current, theta_current, v_current = 0, 5, 0, 0
 
 # Goal state
-x_goal, y_goal, theta_goal = 5, 1.5, np.pi/2
+x_goal, y_goal, theta_goal, v_goal = 5, 1.5, np.pi/2, 0
 
 # Back waypoint
-x_back, y_back, theta_back = 5, y_goal + 5.5, np.pi/2
+x_back, y_back, theta_back, v_back = 5, y_goal + 5.5, np.pi/2, 0
 
 # Simulation parameters
 N = 10
 dt = 0.2
 L = 2.0
-T_sim1 = 100 
-T_sim2 = 150  
+ 
 setup_type1 = 'front'
 setup_type2 = 'back'
 w_vehicle = 1
 h_vehicle = 3
 
 # List of obstacles (as before)
-obstacles = [(7,1.5,1,3),(3,1.5,1,3)]
+obstacles = [(7,1.5,1,3),(1.5,1.5,1,3)]
 
 # Initialize lists to store the vehicle's trajectory for plotting
 x_trajectory = [x_current]
@@ -129,47 +126,53 @@ phase_flag = 1
 while True:
     if phase_flag == 1:
         # Solve the MPC problem with the current state as the starting point
-        v_opt, delta_opt = setup_mpc(setup_type1,N, dt, L, x_current, y_current, theta_current, x_back, y_back, theta_back, obstacles)
-        
+        v_opt, delta_opt, a_opt = setup_mpc(setup_type1,N, dt, L, x_current, y_current, theta_current, v_current, x_back, y_back, theta_back, v_back, obstacles)
+        print("v1: ", v_opt)
         if v_opt == None or delta_opt == None:
             print("Solution doesn't exist.")
             break
 
         # Simulate vehicle dynamics for one time step using the optimized control inputs
-        x_next, y_next, theta_next = simulate_vehicle(x_current, y_current, theta_current, v_opt, delta_opt, dt, L)
+        x_next, y_next, theta_next, v_next = simulate_vehicle(x_current, y_current, theta_current, v_opt, delta_opt, a_opt, dt, L)
         
         # Update current state for the next iteration
-        x_current, y_current, theta_current = x_next, y_next, theta_next
+        x_current, y_current, theta_current, v_current = x_next, y_next, theta_next, v_next
 
         # Store the new position
         x_trajectory.append(x_current)
         y_trajectory.append(y_current)
 
         # Termination condition if the vehicle reaches the goal area
-        if np.sqrt((x_current - x_back)**2 + (y_current - y_back)**2) <= 0.7:  # threshold for reaching the goal
+        # if np.sqrt((x_current - x_back)**2 + (y_current - y_back)**2) <= 0.1:  # threshold for reaching the goal
+        #     print("Back point reached.")
+        #     phase_flag = 2
+        if np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.1 or v_current <= 0.001:  # threshold for reaching the goal
             print("Back point reached.")
             phase_flag = 2
-            
+        
     elif phase_flag == 2:
         # Solve the MPC problem with the current state as the starting point
-        v_opt, delta_opt = setup_mpc(setup_type2,N, dt, L, x_current, y_current, theta_current, x_goal, y_goal, theta_goal, obstacles)
-        
+        v_opt, delta_opt,a_opt = setup_mpc(setup_type2,N, dt, L, x_current, y_current, theta_current, v_current, x_goal, y_goal, theta_goal, v_goal, obstacles)
+        print("v2: ", v_opt)
         if v_opt == None or delta_opt == None:
             print("Solution doesn't exist.")
             break
 
         # Simulate vehicle dynamics for one time step using the optimized control inputs
-        x_next, y_next, theta_next = simulate_vehicle(x_current, y_current, theta_current, v_opt, delta_opt, dt, L)
+        x_next, y_next, theta_next, v_next = simulate_vehicle(x_current, y_current, theta_current, v_opt, delta_opt, a_opt, dt, L)
         
         # Update current state for the next iteration
-        x_current, y_current, theta_current = x_next, y_next, theta_next
+        x_current, y_current, theta_current, v_current = x_next, y_next, theta_next, v_next
 
         # Store the new position
         x_trajectory.append(x_current)
         y_trajectory.append(y_current)
 
         # Termination condition if the vehicle reaches the goal area
-        if np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.2:  # threshold for reaching the goal
+        # if np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.2:  # threshold for reaching the goal
+        #     print("Goal reached.")
+        #     break
+        if  np.sqrt((x_current - x_goal)**2 + (y_current - y_goal)**2) <= 0.1 or v_current > 0.001:  # threshold for reaching the goal
             print("Goal reached.")
             break
 
